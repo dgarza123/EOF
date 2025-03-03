@@ -8,6 +8,9 @@ from io import BytesIO
 import base64
 import chardet
 import codecs
+import pytesseract
+from pdf2image import convert_from_bytes
+from PIL import Image
 
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
@@ -66,24 +69,13 @@ def analyze_pdf(file):
     
     # Extract text from PDF objects and streams
     extracted_text = "\n\n".join([page.get_text("text") for page in doc])
-    hidden_objects = "✅ No hidden text in PDF objects." if extracted_text.strip() else "🚨 Possible hidden text in PDF objects."
     
-    # Attempt XOR decoding focused on EOF first, then full document
-    xor_decoded_results = []
-    xor_targets = [hidden_data, pdf_bytes]  # Focus on EOF first, then entire PDF
-    for target in xor_targets:
-        for key in range(256):  # Attempt all possible single-byte XOR keys
-            try:
-                decoded_text = xor_decrypt(target, key).decode("utf-8", errors="ignore")
-                if decoded_text.strip():
-                    for label, pattern in patterns.items():
-                        if re.search(pattern, decoded_text):  # Only keep XOR data with valid markers
-                            xor_decoded_results.append(f"Key {key}: {decoded_text[:500]}")  # Show first 500 chars per key
-                            if len(xor_decoded_results) >= 5:  # Limit to 5 results
-                                break
-            except Exception:
-                continue
-    xor_status = "🚨 Possible XOR-encoded hidden data detected!" if xor_decoded_results else "✅ No XOR-encoded hidden data found."
+    # If no text is found, attempt OCR
+    if not extracted_text.strip():
+        images = convert_from_bytes(pdf_bytes)
+        extracted_text = "\n\n".join([pytesseract.image_to_string(img) for img in images])
+    
+    hidden_objects = "✅ No hidden text in PDF objects." if extracted_text.strip() else "🚨 Possible hidden text in PDF objects."
     
     # Compile results
     results["Filtered Hex Dump (Base64 Encoded)"] = hex_encoded
@@ -92,13 +84,12 @@ def analyze_pdf(file):
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
     results["PDF Object & Stream Analysis"] = hidden_objects
-    results["XOR Encoded Data"] = xor_status
-    results["XOR Decoded Extract (Filtered, First 5 Entries)"] = xor_decoded_results if xor_decoded_results else "✅ No XOR-decoded content found."
+    results["Extracted Text (OCR + Standard)"] = extracted_text[:500] if extracted_text else "✅ No readable text found."
     
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR & Hex Dump Analysis)")
+st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR, OCR & Hex Dump Analysis)")
 
 uploaded_files = st.file_uploader("Upload PDFs for analysis", type=["pdf"], accept_multiple_files=True)
 
