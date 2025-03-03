@@ -9,37 +9,31 @@ import base64
 import chardet
 import codecs
 import zlib
+from google.cloud import vision
+import io
 
 # Ensure necessary dependencies are installed
-required_packages = ["pytesseract", "pdf2image", "Pillow"]
+required_packages = ["google-cloud-vision", "pdf2image", "Pillow"]
 for package in required_packages:
     try:
         __import__(package)
     except ImportError:
         subprocess.run(["pip", "install", package])
 
-# Ensure Tesseract OCR is installed
-if not os.path.exists("/usr/bin/tesseract"):
-    st.warning("Tesseract OCR is missing. Attempting to install...")
-    try:
-        subprocess.run(["sudo", "apt-get", "update"])
-        subprocess.run(["sudo", "apt-get", "install", "-y", "tesseract-ocr"])
-    except Exception as e:
-        st.error(f"Tesseract installation failed: {e}")
-
-# Check if Tesseract is now installed
-if not os.path.exists("/usr/bin/tesseract"):
-    st.error("🚨 Tesseract OCR installation failed. Please install it manually in Streamlit Cloud.")
-
-import pytesseract
-from pdf2image import convert_from_bytes
-from PIL import Image
+# Initialize Google Vision API client
+client = vision.ImageAnnotatorClient()
 
 def decompress_pdf_stream(data):
     try:
         return zlib.decompress(data)
     except zlib.error:
         return None
+
+def google_vision_ocr(image_bytes):
+    image = vision.Image(content=image_bytes)
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+    return texts[0].description if texts else ""
 
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
@@ -106,10 +100,10 @@ def analyze_pdf(file):
             if decompressed_data:
                 extracted_text += "\n\n" + decompressed_data.decode("utf-8", errors="ignore")
     
-    # If no text is found, attempt OCR
+    # If no text is found, attempt OCR via Google Vision
     if not extracted_text.strip():
         images = convert_from_bytes(pdf_bytes)
-        extracted_text = "\n\n".join([pytesseract.image_to_string(img) for img in images])
+        extracted_text = "\n\n".join([google_vision_ocr(img.tobytes()) for img in images])
     
     hidden_objects = "✅ No hidden text in PDF objects." if extracted_text.strip() else "🚨 Possible hidden text in PDF objects."
     
@@ -120,9 +114,9 @@ def analyze_pdf(file):
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
     results["PDF Object & Stream Analysis"] = hidden_objects
-    results["Extracted Text (OCR + Standard)"] = extracted_text[:500] if extracted_text else "✅ No readable text found."
+    results["Extracted Text (Google OCR + Standard)"] = extracted_text[:500] if extracted_text else "✅ No readable text found."
     
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR, OCR, Base85 & Flate Decompression)")
+st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR, Google OCR, Base85 & Flate Decompression)")
