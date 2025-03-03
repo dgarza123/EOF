@@ -1,5 +1,5 @@
 import os
-import subprocess
+import json
 import streamlit as st
 import fitz  # PyMuPDF
 import binascii
@@ -9,19 +9,29 @@ import base64
 import chardet
 import codecs
 import zlib
+from google.oauth2 import service_account
 from google.cloud import vision
 import io
 
-# Ensure necessary dependencies are installed
-required_packages = ["google-cloud-vision", "pdf2image", "Pillow"]
-for package in required_packages:
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.run(["pip", "install", package])
+# Load credentials from Streamlit secrets
+if "GOOGLE_CLOUD_KEY" in st.secrets:
+    google_cloud_key = json.loads(st.secrets["GOOGLE_CLOUD_KEY"])
 
-# Initialize Google Vision API client
-client = vision.ImageAnnotatorClient()
+    # Save the credentials to a temporary file
+    credentials_path = "/tmp/gcloud_key.json"
+    with open(credentials_path, "w") as f:
+        json.dump(google_cloud_key, f)
+
+    # Set environment variable
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+    # Initialize Google Vision API client
+    credentials = service_account.Credentials.from_service_account_file(credentials_path)
+    client = vision.ImageAnnotatorClient(credentials=credentials)
+
+    st.write("✅ Google Cloud Vision API is ready!")
+else:
+    st.error("🚨 Google Cloud credentials not found in Streamlit Secrets. Please add them.")
 
 def decompress_pdf_stream(data):
     try:
