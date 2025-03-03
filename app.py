@@ -12,14 +12,17 @@ import codecs
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
 
-# Define regex patterns for financial markers
+# Define regex patterns for forensic markers
 patterns = {
     "T-Numbers": r"\bT-?\d{6,9}\b",
     "Certificate of Title Numbers": r"Certificate\s*No[:.\s]*\d{6,9}",
     "APN": r"\b\d{3}[-\s]?\d{2,3}[-\s]?\d{2,3}\b",
     "Monetary Values": r"[$€¥£]?\d{1,3}(?:[.,]?\d{3})*(?:\.\d{1,2})?\s?[MBK]?\b",
     "Document Dates": r"\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b",
-    "Unix Timestamps": r"\b\d{10}\b"
+    "Unix Timestamps": r"\b\d{10}\b",
+    "Names": r"\b[A-Z][a-z]+\s[A-Z][a-z]+\b",  # Detects Firstname Lastname patterns
+    "Locations": r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b",  # General location pattern
+    "Large Numerical Values": r"\b\d{5,}\b"  # Detects large numbers (possible transactions)
 }
 
 # Function to analyze a PDF for hidden data
@@ -30,16 +33,17 @@ def analyze_pdf(file):
     # Open PDF with PyMuPDF
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     
-    # Read hex data in smaller chunks to avoid blocking
+    # Read hex data and extract printable ASCII characters
     hex_data = binascii.hexlify(pdf_bytes[:50000]).decode("utf-8").lower()  # Limit extraction to 50KB
+    printable_text = ''.join(chr(int(hex_data[i:i+2], 16)) for i in range(0, len(hex_data), 2) if int(hex_data[i:i+2], 16) in range(32, 127))
     
     # Encode hex dump to avoid system security flags
-    hex_encoded = base64.b64encode(hex_data.encode()).decode()
+    hex_encoded = base64.b64encode(printable_text.encode()).decode()
     
-    # Search for financial markers in hex
+    # Search for forensic markers in hex
     hex_hits = {}
     for label, pattern in patterns.items():
-        matches = re.findall(pattern, hex_data)
+        matches = re.findall(pattern, printable_text)
         if matches:
             hex_hits[label] = list(set(matches))
     
@@ -82,7 +86,7 @@ def analyze_pdf(file):
     xor_status = "🚨 Possible XOR-encoded hidden data detected!" if xor_decoded_results else "✅ No XOR-encoded hidden data found."
     
     # Compile results
-    results["Hex Dump Encoded (Base64)"] = hex_encoded
+    results["Filtered Hex Dump (Base64 Encoded)"] = hex_encoded
     results["Hidden Financial Data in Hex"] = hex_hits if hex_hits else "✅ No financial markers found in hex."
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
