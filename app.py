@@ -5,6 +5,8 @@ import re
 import os
 import zipfile
 from io import BytesIO
+import base64
+import chardet
 
 # Define regex patterns for financial markers
 patterns = {
@@ -40,14 +42,27 @@ def analyze_pdf(file):
     hidden_data = pdf_bytes[eof_index + len(eof_marker):] if eof_index != -1 else None
     hidden_data_status = "✅ No hidden data after EOF." if not hidden_data.strip() else f"🚨 Hidden data detected after EOF: {hidden_data[:100]}"
     
+    # Attempt to detect encoding issues
+    detected_encoding = chardet.detect(pdf_bytes)
+    encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
+    
+    # Check for Base64 encoded data
+    try:
+        base64_decoded = base64.b64decode(pdf_bytes, validate=True).decode("utf-8", errors="ignore")
+        base64_status = "🚨 Possible Base64 encoded hidden data detected!" if base64_decoded.strip() else "✅ No Base64 encoded hidden data found."
+    except Exception:
+        base64_status = "✅ No Base64 encoded hidden data found."
+    
     # Compile results
     results["Hidden Financial Data in Hex"] = hex_hits if hex_hits else "✅ No financial markers found in hex."
     results["EOF Hidden Data Status"] = hidden_data_status
+    results["Detected Encoding"] = encoding_used
+    results["Base64 Encoded Data"] = base64_status
     
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (EOF Analysis)")
+st.title("🔍 Forensic PDF Analyzer (Advanced EOF & Encoding Analysis)")
 
 uploaded_files = st.file_uploader("Upload PDFs for analysis", type=["pdf"], accept_multiple_files=True)
 
