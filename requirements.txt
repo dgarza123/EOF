@@ -1,2 +1,5 @@
 streamlit
 pymupdf
+binascii
+zipfile36
+chardet
