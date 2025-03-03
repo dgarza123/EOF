@@ -8,6 +8,16 @@ from io import BytesIO
 import base64
 import chardet
 import codecs
+import subprocess
+
+# Ensure necessary dependencies are installed
+required_packages = ["pytesseract", "pdf2image", "Pillow"]
+for package in required_packages:
+    try:
+        __import__(package)
+    except ImportError:
+        subprocess.run(["pip", "install", package])
+
 import pytesseract
 from pdf2image import convert_from_bytes
 from PIL import Image
