@@ -9,6 +9,9 @@ import base64
 import chardet
 import codecs
 
+def xor_decrypt(data, key):
+    return ''.join(chr(b ^ key) for b in data)
+
 # Define regex patterns for financial markers
 patterns = {
     "T-Numbers": r"\bT-?\d{6,9}\b",
@@ -58,9 +61,16 @@ def analyze_pdf(file):
     extracted_text = "\n\n".join([page.get_text("text") for page in doc])
     hidden_objects = "✅ No hidden text in PDF objects." if extracted_text.strip() else "🚨 Possible hidden text in PDF objects."
     
-    # Attempt XOR decoding
-    xor_decoded = codecs.decode(pdf_bytes, 'utf-8', errors='ignore')
-    xor_status = "🚨 Possible XOR-encoded hidden data detected!" if xor_decoded.strip() else "✅ No XOR-encoded hidden data found."
+    # Attempt XOR decoding with multiple keys
+    xor_decoded_results = []
+    for key in range(256):  # Attempt all possible single-byte XOR keys
+        try:
+            decoded_text = xor_decrypt(pdf_bytes, key)
+            if decoded_text.strip():
+                xor_decoded_results.append(decoded_text[:500])  # Limit to first 500 chars
+        except Exception:
+            continue
+    xor_status = "🚨 Possible XOR-encoded hidden data detected!" if xor_decoded_results else "✅ No XOR-encoded hidden data found."
     
     # Compile results
     results["Hidden Financial Data in Hex"] = hex_hits if hex_hits else "✅ No financial markers found in hex."
@@ -69,6 +79,7 @@ def analyze_pdf(file):
     results["Base64 Encoded Data"] = base64_status
     results["PDF Object & Stream Analysis"] = hidden_objects
     results["XOR Encoded Data"] = xor_status
+    results["XOR Decoded Extract (First 500 Chars)"] = xor_decoded_results if xor_decoded_results else "✅ No XOR-decoded content found."
     
     return results
 
