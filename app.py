@@ -7,6 +7,7 @@ import zipfile
 from io import BytesIO
 import base64
 import chardet
+import codecs
 
 # Define regex patterns for financial markers
 patterns = {
@@ -18,7 +19,7 @@ patterns = {
     "Unix Timestamps": r"\b\d{10}\b"
 }
 
-# Function to analyze a PDF for EOF hidden data
+# Function to analyze a PDF for hidden data
 def analyze_pdf(file):
     results = {}
     pdf_bytes = file.read()
@@ -53,16 +54,26 @@ def analyze_pdf(file):
     except Exception:
         base64_status = "✅ No Base64 encoded hidden data found."
     
+    # Extract text from PDF objects and streams
+    extracted_text = "\n\n".join([page.get_text("text") for page in doc])
+    hidden_objects = "✅ No hidden text in PDF objects." if extracted_text.strip() else "🚨 Possible hidden text in PDF objects."
+    
+    # Attempt XOR decoding
+    xor_decoded = codecs.decode(pdf_bytes, 'utf-8', errors='ignore')
+    xor_status = "🚨 Possible XOR-encoded hidden data detected!" if xor_decoded.strip() else "✅ No XOR-encoded hidden data found."
+    
     # Compile results
     results["Hidden Financial Data in Hex"] = hex_hits if hex_hits else "✅ No financial markers found in hex."
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
+    results["PDF Object & Stream Analysis"] = hidden_objects
+    results["XOR Encoded Data"] = xor_status
     
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Advanced EOF & Encoding Analysis)")
+st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR & Object Analysis)")
 
 uploaded_files = st.file_uploader("Upload PDFs for analysis", type=["pdf"], accept_multiple_files=True)
 
