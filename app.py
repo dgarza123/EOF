@@ -8,6 +8,7 @@ import zipfile
 import base64
 import chardet
 import codecs
+import zlib
 
 # Ensure necessary dependencies are installed
 required_packages = ["pytesseract", "pdf2image", "Pillow"]
@@ -19,12 +20,26 @@ for package in required_packages:
 
 # Ensure Tesseract OCR is installed
 if not os.path.exists("/usr/bin/tesseract"):
-    subprocess.run(["sudo", "apt-get", "update"])
-    subprocess.run(["sudo", "apt-get", "install", "-y", "tesseract-ocr"])
+    st.warning("Tesseract OCR is missing. Attempting to install...")
+    try:
+        subprocess.run(["sudo", "apt-get", "update"])
+        subprocess.run(["sudo", "apt-get", "install", "-y", "tesseract-ocr"])
+    except Exception as e:
+        st.error(f"Tesseract installation failed: {e}")
+
+# Check if Tesseract is now installed
+if not os.path.exists("/usr/bin/tesseract"):
+    st.error("🚨 Tesseract OCR installation failed. Please install it manually in Streamlit Cloud.")
 
 import pytesseract
 from pdf2image import convert_from_bytes
 from PIL import Image
+
+def decompress_pdf_stream(data):
+    try:
+        return zlib.decompress(data)
+    except zlib.error:
+        return None
 
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
@@ -84,6 +99,13 @@ def analyze_pdf(file):
     # Extract text from PDF objects and streams
     extracted_text = "\n\n".join([page.get_text("text") for page in doc])
     
+    # Decompress and analyze stream objects
+    for page in doc:
+        for obj in page.get_contents():
+            decompressed_data = decompress_pdf_stream(obj)
+            if decompressed_data:
+                extracted_text += "\n\n" + decompressed_data.decode("utf-8", errors="ignore")
+    
     # If no text is found, attempt OCR
     if not extracted_text.strip():
         images = convert_from_bytes(pdf_bytes)
@@ -103,29 +125,4 @@ def analyze_pdf(file):
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR, OCR & Hex Dump Analysis)")
-
-uploaded_files = st.file_uploader("Upload PDFs for analysis", type=["pdf"], accept_multiple_files=True)
-
-if uploaded_files:
-    all_results = {}
-    
-    for uploaded_file in uploaded_files:
-        with st.spinner(f"Analyzing {uploaded_file.name}..."):
-            results = analyze_pdf(uploaded_file)
-            all_results[uploaded_file.name] = results
-    
-    # Display results
-    for filename, data in all_results.items():
-        st.subheader(f"Results for {filename}")
-        for key, value in data.items():
-            st.write(f"**{key}:** {value}")
-    
-    # Allow user to download results
-    with zipfile.ZipFile("forensic_results.zip", "w") as zipf:
-        for filename, data in all_results.items():
-            report_text = "\n".join([f"{key}: {value}" for key, value in data.items()])
-            zipf.writestr(f"{filename}_report.txt", report_text)
-    
-    with open("forensic_results.zip", "rb") as f:
-        st.download_button("📥 Download Full Forensic Report", f, file_name="forensic_results.zip", mime="application/zip")
+st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR, OCR, Base85 & Flate Decompression)")
