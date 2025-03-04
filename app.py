@@ -14,6 +14,7 @@ from pdf2image import convert_from_bytes
 from PIL import Image
 import pytesseract
 import shutil
+import re
 
 # Ensure pdf2image knows where Poppler is located
 PDF2IMAGE_POPPLER_PATH = shutil.which("pdftoppm") or "/usr/bin"
@@ -24,16 +25,25 @@ if not PDF2IMAGE_POPPLER_PATH:
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
 
+def filter_xor_results(xor_results):
+    filtered_results = {}
+    pattern = re.compile(r'\b\d{6,10}\b|\b(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)*)\b')
+    for key, value in xor_results.items():
+        matches = pattern.findall(value)
+        if matches:
+            filtered_results[key] = matches[:10]  # Limit output per key
+    return filtered_results if filtered_results else "✅ No relevant data found in XOR analysis."
+
 def brute_force_xor(pdf_bytes):
     results = {}
     for key in range(1, 256):  # Test all byte values as keys
         try:
             decrypted = xor_decrypt(pdf_bytes, key).decode("utf-8", errors="ignore")
             if decrypted.strip():
-                results[f"Key {key}"] = decrypted[:500]  # Limit displayed output
+                results[f"Key {key}"] = decrypted
         except:
             continue
-    return results if results else "✅ No XOR-encoded data found."
+    return filter_xor_results(results)
 
 def extract_pdf_objects(doc):
     extracted_data = ""
