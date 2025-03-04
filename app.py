@@ -9,57 +9,36 @@ import base64
 import chardet
 import codecs
 import zlib
-from google.oauth2 import service_account
-from google.cloud import vision
-import io
+import requests
 
-# Load credentials from Streamlit secrets
-if "GOOGLE_CLOUD_KEY" in st.secrets:
-    google_cloud_key = json.loads(st.secrets["GOOGLE_CLOUD_KEY"])
-
-    # Save the credentials to a temporary file
-    credentials_path = "/tmp/gcloud_key.json"
-    with open(credentials_path, "w") as f:
-        json.dump(google_cloud_key, f)
-
-    # Set environment variable
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-
-    # Initialize Google Vision API client
-    credentials = service_account.Credentials.from_service_account_file(credentials_path)
-    client = vision.ImageAnnotatorClient(credentials=credentials)
-
-    st.write("✅ Google Cloud Vision API is ready!")
+# Load API key from Streamlit Secrets
+if "GOOGLE_API_KEY" in st.secrets:
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    st.write("✅ Google API Key Loaded Successfully!")
 else:
-    st.error("🚨 Google Cloud credentials not found in Streamlit Secrets. Please add them.")
+    st.error("🚨 Google API Key Not Found in Streamlit Secrets!")
 
-def decompress_pdf_stream(data):
-    try:
-        return zlib.decompress(data)
-    except zlib.error:
-        return None
+# Function to test Google Vision API
+def google_vision_test():
+    url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
+    test_payload = {
+        "requests": [
+            {
+                "image": {
+                    "source": {
+                        "imageUri": "https://upload.wikimedia.org/wikipedia/commons/4/4f/Google_Cloud_Logo.svg"
+                    }
+                },
+                "features": [{"type": "TEXT_DETECTION"}]
+            }
+        ]
+    }
+    
+    response = requests.post(url, json=test_payload)
+    st.write("🔍 Google Vision API Test Response:", response.json())
 
-def google_vision_ocr(image_bytes):
-    image = vision.Image(content=image_bytes)
-    response = client.text_detection(image=image)
-    texts = response.text_annotations
-    return texts[0].description if texts else ""
-
-def xor_decrypt(data, key):
-    return bytes([b ^ key for b in data])
-
-# Define regex patterns for forensic markers
-patterns = {
-    "T-Numbers": r"\bT-?\d{6,9}\b",
-    "Certificate of Title Numbers": r"Certificate\s*No[:.\s]*\d{6,9}",
-    "APN": r"\b\d{3}[-\s]?\d{2,3}[-\s]?\d{2,3}\b",
-    "Monetary Values": r"[$€¥£]?\d{1,3}(?:[.,]?\d{3})*(?:\.\d{1,2})?\s?[MBK]?\b",
-    "Document Dates": r"\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b",
-    "Unix Timestamps": r"\b\d{10}\b",
-    "Names": r"\b[A-Z][a-z]+\s[A-Z][a-z]+\b",
-    "Locations": r"\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)*\b",
-    "Large Numerical Values": r"\b\d{5,}\b"
-}
+# Run the test function
+google_vision_test()
 
 # Function to analyze a PDF for hidden data
 def analyze_pdf(file):
@@ -75,13 +54,6 @@ def analyze_pdf(file):
     
     # Encode hex dump to avoid system security flags
     hex_encoded = base64.b64encode(printable_text.encode()).decode()
-    
-    # Search for forensic markers in hex
-    hex_hits = {}
-    for label, pattern in patterns.items():
-        matches = re.findall(pattern, printable_text)
-        if matches:
-            hex_hits[label] = list(set(matches))
     
     # Check for EOF anomalies (hidden data after %%EOF)
     eof_marker = b"%%EOF"
@@ -103,30 +75,17 @@ def analyze_pdf(file):
     # Extract text from PDF objects and streams
     extracted_text = "\n\n".join([page.get_text("text") for page in doc])
     
-    # Decompress and analyze stream objects
-    for page in doc:
-        for obj in page.get_contents():
-            decompressed_data = decompress_pdf_stream(obj)
-            if decompressed_data:
-                extracted_text += "\n\n" + decompressed_data.decode("utf-8", errors="ignore")
-    
-    # If no text is found, attempt OCR via Google Vision
-    if not extracted_text.strip():
-        images = convert_from_bytes(pdf_bytes)
-        extracted_text = "\n\n".join([google_vision_ocr(img.tobytes()) for img in images])
-    
     hidden_objects = "✅ No hidden text in PDF objects." if extracted_text.strip() else "🚨 Possible hidden text in PDF objects."
     
     # Compile results
     results["Filtered Hex Dump (Base64 Encoded)"] = hex_encoded
-    results["Hidden Financial Data in Hex"] = hex_hits if hex_hits else "✅ No financial markers found in hex."
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
     results["PDF Object & Stream Analysis"] = hidden_objects
-    results["Extracted Text (Google OCR + Standard)"] = extracted_text[:500] if extracted_text else "✅ No readable text found."
+    results["Extracted Text"] = extracted_text[:500] if extracted_text else "✅ No readable text found."
     
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, XOR, Google OCR, Base85 & Flate Decompression)")
+st.title("🔍 Forensic PDF Analyzer (Advanced EOF, Encoding, Google OCR, Base85 & Flate Decompression)")
