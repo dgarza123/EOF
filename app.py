@@ -43,6 +43,8 @@ def analyze_pdf(file):
     for i in range(0, len(pdf_bytes), chunk_size):
         chunk = binascii.hexlify(pdf_bytes[i:i+chunk_size]).decode("utf-8").lower()
         filtered_chunk = chunk.replace('f', '')  # Ignore letter 'f'
+        if len(filtered_chunk) % 2 != 0:
+            filtered_chunk += "0"  # Ensure even length for unhexlify
         hex_data_chunks.append(filtered_chunk)
 
     # Search for financial markers in hex data
@@ -56,10 +58,13 @@ def analyze_pdf(file):
 
     for label, pattern in financial_patterns.items():
         for hex_chunk in hex_data_chunks:
-            matches = binascii.unhexlify(hex_chunk).decode("utf-8", errors="ignore")
-            detected = list(set(re.findall(pattern, matches)))
-            if detected:
-                financial_hits[label] = detected
+            try:
+                decoded_text = binascii.unhexlify(hex_chunk).decode("utf-8", errors="ignore")
+                detected = list(set(re.findall(pattern, decoded_text)))
+                if detected:
+                    financial_hits[label] = detected
+            except Exception:
+                continue  # Skip errors without crashing
 
     financial_data_status = "✅ No financial markers found in hex." if not financial_hits else f"🚨 Financial markers detected: {financial_hits}" 
 
