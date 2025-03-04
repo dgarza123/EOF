@@ -1,9 +1,8 @@
 streamlit
-pymupdf
-pytesseract
-pdf2image
-Pillow
+pymupdf==1.22.3
+pytesseract==0.3.10
+pdf2image==1.16.3
+Pillow==9.5.0
+chardet==5.1.0
 tesseract-ocr
-chardet
-
-
+requests
