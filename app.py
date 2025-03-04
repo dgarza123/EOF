@@ -8,6 +8,9 @@ import binascii
 import chardet
 import codecs
 import zlib
+import pytesseract
+from pdf2image import convert_from_bytes
+from PIL import Image
 
 def decompress_pdf_stream(data):
     try:
@@ -22,7 +25,7 @@ if "GOOGLE_API_KEY" in st.secrets:
 else:
     st.error("🚨 Google API Key Not Found in Streamlit Secrets!")
 
-# Function to process an uploaded PDF with Google Vision API
+# Function to process an uploaded PDF with Google Vision API & OCR
 def google_vision_ocr(pdf_file):
     pdf_file.seek(0)  # Reset file pointer
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
@@ -110,17 +113,24 @@ def analyze_pdf(file):
 
     hidden_objects = "✅ No hidden text in PDF objects." if printable_text.strip() else "🚨 Possible hidden text in PDF objects."
 
+    # OCR Backup with Tesseract (if needed)
+    extracted_ocr_text = ""
+    images = convert_from_bytes(pdf_bytes)
+    for img in images:
+        extracted_ocr_text += pytesseract.image_to_string(img) + "\n\n"
+
     # Compile results
     results["Filtered Hex Dump (Base64 Encoded)"] = hex_encoded
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
     results["PDF Object & Stream Analysis"] = hidden_objects
+    results["Tesseract OCR Backup"] = extracted_ocr_text if extracted_ocr_text.strip() else "✅ No additional text detected via Tesseract."
 
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Hidden Data Detection)")
+st.title("🔍 Forensic PDF Analyzer (Google Vision OCR, Hex Analysis, & Tesseract Backup)")
 
 # File Upload
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
@@ -132,11 +142,11 @@ if uploaded_file:
 
     # Display extracted text
     if extracted_text:
-        st.subheader("📝 Extracted Text (OCR)")
+        st.subheader("📝 Extracted Text (Google OCR)")
         st.text_area("OCR Result", extracted_text, height=400)
     else:
         st.error("🚨 No text detected in the document.")
-
+    
     # Display forensic analysis results
     st.subheader("🔍 Forensic PDF Analysis")
     for key, value in forensic_results.items():
