@@ -13,9 +13,13 @@ import quopri
 from pdf2image import convert_from_bytes
 from PIL import Image
 import pytesseract
+import shutil
 
 # Ensure pdf2image knows where Poppler is located
-PDF2IMAGE_POPPLER_PATH = "/usr/bin"
+PDF2IMAGE_POPPLER_PATH = shutil.which("pdftoppm") or "/usr/bin"
+
+if not PDF2IMAGE_POPPLER_PATH:
+    st.error("🚨 Poppler is not installed or not found in PATH. OCR may fail.")
 
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
@@ -62,11 +66,15 @@ def attempt_alternative_decoding(data):
     return results
 
 def force_ocr_on_pdf(pdf_bytes):
-    images = convert_from_bytes(pdf_bytes, poppler_path=PDF2IMAGE_POPPLER_PATH)
-    extracted_text = ""
-    for img in images:
-        extracted_text += pytesseract.image_to_string(img) + "\n\n"
-    return extracted_text if extracted_text.strip() else "✅ No additional text detected via OCR."
+    if not PDF2IMAGE_POPPLER_PATH:
+        return "🚨 OCR failed: Poppler not found."
+    
+    try:
+        images = convert_from_bytes(pdf_bytes, poppler_path=PDF2IMAGE_POPPLER_PATH)
+        extracted_text = "\n\n".join([pytesseract.image_to_string(img) for img in images])
+        return extracted_text if extracted_text.strip() else "✅ No additional text detected via OCR."
+    except Exception as e:
+        return f"🚨 OCR failed: {str(e)}"
 
 def analyze_pdf(file):
     results = {}
