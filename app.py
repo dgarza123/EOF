@@ -8,126 +8,107 @@ import binascii
 import chardet
 import codecs
 import zlib
+import base64
+import quopri
 from pdf2image import convert_from_bytes
 from PIL import Image
+import pytesseract
 
-# Load API key from Streamlit Secrets
-if "GOOGLE_API_KEY" in st.secrets:
-    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-    st.write("✅ Google API Key Loaded Successfully!")
-else:
-    st.error("🚨 Google API Key Not Found in Streamlit Secrets!")
+def xor_decrypt(data, key):
+    return bytes([b ^ key for b in data])
 
-# Function to process an uploaded PDF with Google Vision API
+def brute_force_xor(pdf_bytes):
+    results = {}
+    for key in range(1, 256):  # Test all byte values as keys
+        try:
+            decrypted = xor_decrypt(pdf_bytes, key).decode("utf-8", errors="ignore")
+            if decrypted.strip():
+                results[f"Key {key}"] = decrypted[:500]  # Limit displayed output
+        except:
+            continue
+    return results if results else "✅ No XOR-encoded data found."
 
-def google_vision_ocr(pdf_file):
-    pdf_file.seek(0)  # Reset file pointer
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    if len(doc) == 0:
-        st.error("🚨 No pages found in PDF!")
-        return None
+def extract_pdf_objects(doc):
+    extracted_data = ""
+    for page in doc:
+        for obj in page.get_contents():
+            try:
+                raw_data = obj.read_bytes()
+                try:
+                    decompressed_data = zlib.decompress(raw_data).decode("utf-8", errors="ignore")
+                    extracted_data += decompressed_data + "\n\n"
+                except:
+                    extracted_data += raw_data.decode("utf-8", errors="ignore") + "\n\n"
+            except:
+                continue  # Skip if unreadable
+    return extracted_data if extracted_data.strip() else "✅ No additional text found."
 
+def attempt_alternative_decoding(data):
+    results = {}
+    try:
+        decoded_base85 = base64.a85decode(data, adobe=True).decode("utf-8", errors="ignore")
+        results["Base85"] = "🚨 Hidden text found!" if decoded_base85.strip() else "✅ No hidden text."
+    except:
+        results["Base85"] = "✅ No Base85 encoded data found."
+
+    try:
+        decoded_qp = quopri.decodestring(data).decode("utf-8", errors="ignore")
+        results["Quoted-Printable"] = "🚨 Hidden text found!" if decoded_qp.strip() else "✅ No hidden text."
+    except:
+        results["Quoted-Printable"] = "✅ No Quoted-Printable encoded data found."
+    return results
+
+def force_ocr_on_pdf(pdf_bytes):
+    images = convert_from_bytes(pdf_bytes)
     extracted_text = ""
+    for img in images:
+        extracted_text += pytesseract.image_to_string(img) + "\n\n"
+    return extracted_text if extracted_text.strip() else "✅ No additional text detected via OCR."
 
-    # Process all pages in the PDF
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        pix = page.get_pixmap()
-        img_bytes = pix.tobytes("png")
-
-        # Convert the image to Base64
-        img_base64 = base64.b64encode(img_bytes).decode()
-
-        # Create the Vision API request payload
-        url = f"https://vision.googleapis.com/v1/images:annotate?key={GOOGLE_API_KEY}"
-        payload = {
-            "requests": [
-                {
-                    "image": {
-                        "content": img_base64
-                    },
-                    "features": [{"type": "TEXT_DETECTION"}]
-                }
-            ]
-        }
-
-        # Send request to Google Vision API
-        response = requests.post(url, json=payload)
-        result = response.json()
-
-        # Extract and append text
-        if "responses" in result and "textAnnotations" in result["responses"][0]:
-            extracted_text += result["responses"][0]["textAnnotations"][0]["description"] + "\n\n"
-        else:
-            extracted_text += f"🚨 No text detected on page {page_num + 1}.\n\n"
-
-    return extracted_text.strip()
-
-# Function to analyze a PDF for hidden data
 def analyze_pdf(file):
     results = {}
-    file.seek(0)  # Reset file pointer before reading
+    file.seek(0)
     pdf_bytes = file.read()
 
-    # Check if the file is empty
     if not pdf_bytes:
         st.error("🚨 The uploaded PDF file appears to be empty or corrupted.")
         return results
 
-    # Open PDF with PyMuPDF
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         st.error("🚨 Failed to open PDF. The file may be corrupted.")
         return results
 
-    # Read hex data
     hex_data = binascii.hexlify(pdf_bytes[:50000]).decode("utf-8").lower()
-
-    # Check for EOF anomalies (hidden data after %%EOF)
     eof_marker = b"%%EOF"
     eof_index = pdf_bytes.rfind(eof_marker)
     hidden_data = pdf_bytes[eof_index + len(eof_marker):] if eof_index != -1 else None
     hidden_data_status = "✅ No hidden data after EOF." if not hidden_data.strip() else "🚨 Hidden data detected after EOF."
-
-    # Attempt to detect encoding issues
     detected_encoding = chardet.detect(pdf_bytes)
     encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
+    alternative_decodings = attempt_alternative_decoding(pdf_bytes)
+    extracted_objects = extract_pdf_objects(doc)
+    ocr_text = force_ocr_on_pdf(pdf_bytes)
+    xor_results = brute_force_xor(pdf_bytes)
 
-    # Check for Base64 encoded data
-    try:
-        base64_decoded = base64.b64decode(pdf_bytes, validate=True).decode("utf-8", errors="ignore")
-        base64_status = "🚨 Possible Base64 encoded hidden data detected!" if base64_decoded.strip() else "✅ No Base64 encoded hidden data found."
-    except Exception:
-        base64_status = "✅ No Base64 encoded hidden data found."
-
-    # Compile results
-    results["Filtered Hex Dump"] = hex_data[:1000] + "..."  # Limit displayed data
+    results["Filtered Hex Dump"] = hex_data[:1000] + "..."
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
-    results["Base64 Encoded Data"] = base64_status
-
+    results["Alternative Encoding Analysis"] = alternative_decodings
+    results["Extracted PDF Objects"] = extracted_objects
+    results["OCR Extracted Text"] = ocr_text
+    results["XOR Decryption Attempts"] = xor_results
     return results
 
-# Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Hex Analysis)")
+st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Advanced Hidden Data Analysis)")
 
-# File Upload
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
 
 if uploaded_file:
     st.write("📄 Processing file:", uploaded_file.name)
-    extracted_text = google_vision_ocr(uploaded_file)
     forensic_results = analyze_pdf(uploaded_file)
 
-    # Display extracted text
-    if extracted_text:
-        st.subheader("📝 Extracted Text (Google OCR)")
-        st.text_area("OCR Result", extracted_text, height=400)
-    else:
-        st.error("🚨 No text detected in the document.")
-    
-    # Display forensic analysis results
     st.subheader("🔍 Forensic PDF Analysis")
     for key, value in forensic_results.items():
         st.write(f"**{key}:** {value}")
