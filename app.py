@@ -15,6 +15,7 @@ from PIL import Image
 import pytesseract
 import shutil
 import re
+import codecs
 
 # Ensure pdf2image knows where Poppler is located
 PDF2IMAGE_POPPLER_PATH = shutil.which("pdftoppm") or "/usr/bin"
@@ -45,6 +46,35 @@ def brute_force_xor(pdf_bytes):
             continue
     return filter_xor_results(results)
 
+def detect_utf7(data):
+    try:
+        decoded_text = data.decode("utf-7")
+        return decoded_text if decoded_text.strip() else "✅ No UTF-7 encoded text found."
+    except:
+        return "✅ No UTF-7 encoded text found."
+
+def detect_uuencode(data):
+    try:
+        decoded_text = codecs.decode(data, "uu").decode("utf-8", errors="ignore")
+        return decoded_text if decoded_text.strip() else "✅ No UUEncoded text found."
+    except:
+        return "✅ No UUEncoded text found."
+
+def detect_rot13(data):
+    try:
+        decoded_text = codecs.decode(data.decode("utf-8", errors="ignore"), "rot_13")
+        return decoded_text if decoded_text.strip() else "✅ No ROT13 encoded text found."
+    except:
+        return "✅ No ROT13 encoded text found."
+
+def detect_double_base64(data):
+    try:
+        decoded_once = base64.b64decode(data).decode("utf-8", errors="ignore")
+        decoded_twice = base64.b64decode(decoded_once).decode("utf-8", errors="ignore")
+        return decoded_twice if decoded_twice.strip() else "✅ No Double Base64 encoded text found."
+    except:
+        return "✅ No Double Base64 encoded text found."
+
 def extract_pdf_objects(doc):
     extracted_data = ""
     for page in doc:
@@ -59,32 +89,6 @@ def extract_pdf_objects(doc):
             except:
                 continue  # Skip if unreadable
     return extracted_data if extracted_data.strip() else "✅ No additional text found."
-
-def attempt_alternative_decoding(data):
-    results = {}
-    try:
-        decoded_base85 = base64.a85decode(data, adobe=True).decode("utf-8", errors="ignore")
-        results["Base85"] = "🚨 Hidden text found!" if decoded_base85.strip() else "✅ No hidden text."
-    except:
-        results["Base85"] = "✅ No Base85 encoded data found."
-
-    try:
-        decoded_qp = quopri.decodestring(data).decode("utf-8", errors="ignore")
-        results["Quoted-Printable"] = "🚨 Hidden text found!" if decoded_qp.strip() else "✅ No hidden text."
-    except:
-        results["Quoted-Printable"] = "✅ No Quoted-Printable encoded data found."
-    return results
-
-def force_ocr_on_pdf(pdf_bytes):
-    if not PDF2IMAGE_POPPLER_PATH:
-        return "🚨 OCR failed: Poppler not found."
-    
-    try:
-        images = convert_from_bytes(pdf_bytes, poppler_path=PDF2IMAGE_POPPLER_PATH)
-        extracted_text = "\n\n".join([pytesseract.image_to_string(img) for img in images])
-        return extracted_text if extracted_text.strip() else "✅ No additional text detected via OCR."
-    except Exception as e:
-        return f"🚨 OCR failed: {str(e)}"
 
 def analyze_pdf(file):
     results = {}
@@ -108,18 +112,22 @@ def analyze_pdf(file):
     hidden_data_status = "✅ No hidden data after EOF." if not hidden_data.strip() else "🚨 Hidden data detected after EOF."
     detected_encoding = chardet.detect(pdf_bytes)
     encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
-    alternative_decodings = attempt_alternative_decoding(pdf_bytes)
     extracted_objects = extract_pdf_objects(doc)
-    ocr_text = force_ocr_on_pdf(pdf_bytes)
     xor_results = brute_force_xor(pdf_bytes)
+
+    additional_decoding = {
+        "UTF-7": detect_utf7(pdf_bytes),
+        "UUEncode": detect_uuencode(pdf_bytes),
+        "ROT13": detect_rot13(pdf_bytes),
+        "Double Base64": detect_double_base64(pdf_bytes)
+    }
 
     results["Filtered Hex Dump"] = hex_data[:1000] + "..."
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
-    results["Alternative Encoding Analysis"] = alternative_decodings
     results["Extracted PDF Objects"] = extracted_objects
-    results["OCR Extracted Text"] = ocr_text
     results["XOR Decryption Attempts"] = xor_results
+    results["Additional Encoding Analysis"] = additional_decoding
     return results
 
 st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Advanced Hidden Data Analysis)")
