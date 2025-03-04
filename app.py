@@ -8,25 +8,8 @@ import binascii
 import chardet
 import codecs
 import zlib
-import subprocess
-
-# Ensure necessary dependencies are installed
-required_packages = ["pytesseract", "pdf2image", "Pillow"]
-for package in required_packages:
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.run(["pip", "install", package])
-
-import pytesseract
 from pdf2image import convert_from_bytes
 from PIL import Image
-
-def decompress_pdf_stream(data):
-    try:
-        return zlib.decompress(data)
-    except zlib.error:
-        return None
 
 # Load API key from Streamlit Secrets
 if "GOOGLE_API_KEY" in st.secrets:
@@ -35,7 +18,8 @@ if "GOOGLE_API_KEY" in st.secrets:
 else:
     st.error("🚨 Google API Key Not Found in Streamlit Secrets!")
 
-# Function to process an uploaded PDF with Google Vision API & OCR
+# Function to process an uploaded PDF with Google Vision API
+
 def google_vision_ocr(pdf_file):
     pdf_file.seek(0)  # Reset file pointer
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
@@ -97,12 +81,8 @@ def analyze_pdf(file):
         st.error("🚨 Failed to open PDF. The file may be corrupted.")
         return results
 
-    # Read hex data and extract printable ASCII characters
+    # Read hex data
     hex_data = binascii.hexlify(pdf_bytes[:50000]).decode("utf-8").lower()
-    printable_text = ''.join(chr(int(hex_data[i:i+2], 16)) for i in range(0, len(hex_data), 2) if int(hex_data[i:i+2], 16) in range(32, 127))
-
-    # Encode hex dump to avoid system security flags
-    hex_encoded = base64.b64encode(printable_text.encode()).decode()
 
     # Check for EOF anomalies (hidden data after %%EOF)
     eof_marker = b"%%EOF"
@@ -121,26 +101,16 @@ def analyze_pdf(file):
     except Exception:
         base64_status = "✅ No Base64 encoded hidden data found."
 
-    hidden_objects = "✅ No hidden text in PDF objects." if printable_text.strip() else "🚨 Possible hidden text in PDF objects."
-
-    # OCR Backup with Tesseract (if needed)
-    extracted_ocr_text = ""
-    images = convert_from_bytes(pdf_bytes)
-    for img in images:
-        extracted_ocr_text += pytesseract.image_to_string(img) + "\n\n"
-
     # Compile results
-    results["Filtered Hex Dump (Base64 Encoded)"] = hex_encoded
+    results["Filtered Hex Dump"] = hex_data[:1000] + "..."  # Limit displayed data
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
-    results["PDF Object & Stream Analysis"] = hidden_objects
-    results["Tesseract OCR Backup"] = extracted_ocr_text if extracted_ocr_text.strip() else "✅ No additional text detected via Tesseract."
 
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Google Vision OCR, Hex Analysis, & Tesseract Backup)")
+st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Hex Analysis)")
 
 # File Upload
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
