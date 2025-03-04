@@ -16,6 +16,7 @@ import pytesseract
 import shutil
 import re
 import codecs
+import distorm3
 
 # Ensure pdf2image knows where Poppler is located
 PDF2IMAGE_POPPLER_PATH = shutil.which("pdftoppm") or "/usr/bin"
@@ -45,6 +46,14 @@ def brute_force_xor(pdf_bytes):
         except:
             continue
     return filter_xor_results(results)
+
+def detect_executable_code(data):
+    try:
+        instructions = distorm3.Decode(0, data, distorm3.Decode32Bits)
+        decoded_instructions = "\n".join([f"{i[0]} {i[2]} {i[3]}" for i in instructions])
+        return decoded_instructions if decoded_instructions.strip() else "✅ No executable code detected."
+    except:
+        return "✅ No executable code detected."
 
 def detect_utf7(data):
     try:
@@ -114,6 +123,7 @@ def analyze_pdf(file):
     encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
     extracted_objects = extract_pdf_objects(doc)
     xor_results = brute_force_xor(pdf_bytes)
+    executable_code = detect_executable_code(pdf_bytes)
 
     additional_decoding = {
         "UTF-7": detect_utf7(pdf_bytes),
@@ -127,6 +137,7 @@ def analyze_pdf(file):
     results["Detected Encoding"] = encoding_used
     results["Extracted PDF Objects"] = extracted_objects
     results["XOR Decryption Attempts"] = xor_results
+    results["Executable Code Analysis"] = executable_code
     results["Additional Encoding Analysis"] = additional_decoding
     return results
 
