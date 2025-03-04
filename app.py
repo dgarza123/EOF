@@ -41,11 +41,7 @@ def analyze_pdf(file):
     chunk_size = 50000
     hex_data_chunks = []
     for i in range(0, len(pdf_bytes), chunk_size):
-        chunk = binascii.hexlify(pdf_bytes[i:i+chunk_size]).decode("utf-8").lower()
-        filtered_chunk = chunk.replace('f', '')  # Ignore letter 'f'
-        if len(filtered_chunk) % 2 != 0:
-            filtered_chunk += "0"  # Ensure even length for unhexlify
-        hex_data_chunks.append(filtered_chunk)
+        hex_data_chunks.append(binascii.hexlify(pdf_bytes[i:i+chunk_size]).decode("utf-8").lower())
 
     # Search for financial markers in hex data
     financial_patterns = {
@@ -58,13 +54,10 @@ def analyze_pdf(file):
 
     for label, pattern in financial_patterns.items():
         for hex_chunk in hex_data_chunks:
-            try:
-                decoded_text = binascii.unhexlify(hex_chunk).decode("utf-8", errors="ignore")
-                detected = list(set(re.findall(pattern, decoded_text)))
-                if detected:
-                    financial_hits[label] = detected
-            except Exception:
-                continue  # Skip errors without crashing
+            matches = binascii.unhexlify(hex_chunk).decode("utf-8", errors="ignore")
+            detected = list(set(re.findall(pattern, matches)))
+            if detected:
+                financial_hits[label] = detected
 
     financial_data_status = "✅ No financial markers found in hex." if not financial_hits else f"🚨 Financial markers detected: {financial_hits}" 
 
@@ -78,7 +71,7 @@ def analyze_pdf(file):
     detected_encoding = chardet.detect(pdf_bytes)
     encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
 
-    # Check for Base64, Base65, and 16-bit encoded data
+    # Check for Base64, Base65, and UTF-16 encoded data
     encoding_checks = {
         "Base64": base64.b64decode,
         "Base65": lambda data: base64.b64decode(data.replace("-", "+").replace("_", "/")),
@@ -103,7 +96,7 @@ def analyze_pdf(file):
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Hex Analysis)")
+st.title("🔍 Forensic PDF Analyzer (Financial & Hex Analysis)")
 
 # File Upload
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
