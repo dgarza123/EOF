@@ -14,6 +14,9 @@ from pdf2image import convert_from_bytes
 from PIL import Image
 import pytesseract
 
+# Ensure pdf2image knows where Poppler is located
+PDF2IMAGE_POPPLER_PATH = "/usr/bin"
+
 def xor_decrypt(data, key):
     return bytes([b ^ key for b in data])
 
@@ -59,7 +62,7 @@ def attempt_alternative_decoding(data):
     return results
 
 def force_ocr_on_pdf(pdf_bytes):
-    images = convert_from_bytes(pdf_bytes)
+    images = convert_from_bytes(pdf_bytes, poppler_path=PDF2IMAGE_POPPLER_PATH)
     extracted_text = ""
     for img in images:
         extracted_text += pytesseract.image_to_string(img) + "\n\n"
