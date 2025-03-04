@@ -24,6 +24,7 @@ else:
 
 # Function to process an uploaded PDF with Google Vision API
 def google_vision_ocr(pdf_file):
+    pdf_file.seek(0)  # Reset file pointer
     doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
     if len(doc) == 0:
         st.error("🚨 No pages found in PDF!")
@@ -68,44 +69,54 @@ def google_vision_ocr(pdf_file):
 # Function to analyze a PDF for hidden data
 def analyze_pdf(file):
     results = {}
+    file.seek(0)  # Reset file pointer before reading
     pdf_bytes = file.read()
-    
+
+    # Check if the file is empty
+    if not pdf_bytes:
+        st.error("🚨 The uploaded PDF file appears to be empty or corrupted.")
+        return results
+
     # Open PDF with PyMuPDF
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        st.error("🚨 Failed to open PDF. The file may be corrupted.")
+        return results
+
     # Read hex data and extract printable ASCII characters
     hex_data = binascii.hexlify(pdf_bytes[:50000]).decode("utf-8").lower()
     printable_text = ''.join(chr(int(hex_data[i:i+2], 16)) for i in range(0, len(hex_data), 2) if int(hex_data[i:i+2], 16) in range(32, 127))
-    
+
     # Encode hex dump to avoid system security flags
     hex_encoded = base64.b64encode(printable_text.encode()).decode()
-    
+
     # Check for EOF anomalies (hidden data after %%EOF)
     eof_marker = b"%%EOF"
     eof_index = pdf_bytes.rfind(eof_marker)
     hidden_data = pdf_bytes[eof_index + len(eof_marker):] if eof_index != -1 else None
     hidden_data_status = "✅ No hidden data after EOF." if not hidden_data.strip() else "🚨 Hidden data detected after EOF."
-    
+
     # Attempt to detect encoding issues
     detected_encoding = chardet.detect(pdf_bytes)
     encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
-    
+
     # Check for Base64 encoded data
     try:
         base64_decoded = base64.b64decode(pdf_bytes, validate=True).decode("utf-8", errors="ignore")
         base64_status = "🚨 Possible Base64 encoded hidden data detected!" if base64_decoded.strip() else "✅ No Base64 encoded hidden data found."
     except Exception:
         base64_status = "✅ No Base64 encoded hidden data found."
-    
+
     hidden_objects = "✅ No hidden text in PDF objects." if printable_text.strip() else "🚨 Possible hidden text in PDF objects."
-    
+
     # Compile results
     results["Filtered Hex Dump (Base64 Encoded)"] = hex_encoded
     results["EOF Hidden Data Status"] = hidden_data_status
     results["Detected Encoding"] = encoding_used
     results["Base64 Encoded Data"] = base64_status
     results["PDF Object & Stream Analysis"] = hidden_objects
-    
+
     return results
 
 # Streamlit UI
@@ -118,14 +129,14 @@ if uploaded_file:
     st.write("📄 Processing file:", uploaded_file.name)
     extracted_text = google_vision_ocr(uploaded_file)
     forensic_results = analyze_pdf(uploaded_file)
-    
+
     # Display extracted text
     if extracted_text:
         st.subheader("📝 Extracted Text (OCR)")
         st.text_area("OCR Result", extracted_text, height=400)
     else:
         st.error("🚨 No text detected in the document.")
-    
+
     # Display forensic analysis results
     st.subheader("🔍 Forensic PDF Analysis")
     for key, value in forensic_results.items():
