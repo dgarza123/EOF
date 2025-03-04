@@ -41,7 +41,9 @@ def analyze_pdf(file):
     chunk_size = 50000
     hex_data_chunks = []
     for i in range(0, len(pdf_bytes), chunk_size):
-        hex_data_chunks.append(binascii.hexlify(pdf_bytes[i:i+chunk_size]).decode("utf-8").lower())
+        chunk = binascii.hexlify(pdf_bytes[i:i+chunk_size]).decode("utf-8").lower()
+        filtered_chunk = chunk.replace('f', '')  # Ignore letter 'f'
+        hex_data_chunks.append(filtered_chunk)
 
     # Search for financial markers in hex data
     financial_patterns = {
@@ -71,7 +73,7 @@ def analyze_pdf(file):
     detected_encoding = chardet.detect(pdf_bytes)
     encoding_used = detected_encoding["encoding"] if detected_encoding["confidence"] > 0.5 else "Unknown"
 
-    # Check for Base64, Base65, and UTF-16 encoded data
+    # Check for Base64, Base65, and 16-bit encoded data
     encoding_checks = {
         "Base64": base64.b64decode,
         "Base65": lambda data: base64.b64decode(data.replace("-", "+").replace("_", "/")),
@@ -96,7 +98,7 @@ def analyze_pdf(file):
     return results
 
 # Streamlit UI
-st.title("🔍 Forensic PDF Analyzer (Financial & Hex Analysis)")
+st.title("🔍 Forensic PDF Analyzer (Google Vision OCR & Hex Analysis)")
 
 # File Upload
 uploaded_file = st.file_uploader("Upload a PDF", type="pdf")
