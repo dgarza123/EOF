@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 
 # 🔹 Ensure required dependencies are installed before importing them
 packages = ["pandas", "PyPDF2", "pdf2image", "pytesseract"]
@@ -7,16 +8,16 @@ for package in packages:
     try:
         __import__(package)
     except ImportError:
-        subprocess.run(["pip", "install", package])
+        subprocess.run([sys.executable, "-m", "pip", "install", "--force-reinstall", package])
 
-# Ensure PyPDF2 is installed properly
+# Force import PyPDF2 after installation
 try:
     import PyPDF2
 except ImportError:
-    subprocess.run(["pip", "install", "--force-reinstall", "PyPDF2"])
+    subprocess.run([sys.executable, "-m", "pip", "install", "--force-reinstall", "PyPDF2"])
     import PyPDF2
 
-# Now import the installed modules
+# Now import other modules
 import streamlit as st
 import pandas as pd
 import re
@@ -26,7 +27,20 @@ from pdf2image import convert_from_path
 # Ensure pytesseract is in PATH
 os.environ["PATH"] += os.pathsep + "/home/appuser/.local/bin"
 
-# Function to extract text using OCR from PDF images
+# Function to extract JBIG2 images using Didier Stevens' script
+def extract_jbig2_images(pdf_path):
+    """Extracts JBIG2 images using Didier Stevens' pdf-parser.py"""
+    jbig2_images = []
+    try:
+        result = subprocess.run(["python3", "pdf-parser.py", "-o", pdf_path], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            if "/Filter /JBIG2Decode" in line:
+                jbig2_images.append(line)
+        return jbig2_images
+    except Exception as e:
+        return f"Error extracting JBIG2 images: {e}"
+
+# Function to extract text using OCR from JBIG2 images
 def extract_text_from_images(pdf_path):
     try:
         images = convert_from_path(pdf_path, fmt="png")
@@ -58,7 +72,7 @@ def extract_financial_data(text):
     return {key: values for key, values in patterns.items() if values}
 
 # Streamlit UI
-st.title("Shiva PDF Analyzer (With OCR Extraction)")
+st.title("Shiva PDF Analyzer (With JBIG2 OCR Extraction)")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
@@ -69,13 +83,21 @@ if uploaded_file:
 
     st.write("🔍 Processing the PDF...")
 
+    # Extract JBIG2 images
+    st.subheader("📂 JBIG2 Image Extraction")
+    jbig2_images = extract_jbig2_images(pdf_path)
+    if jbig2_images:
+        st.success(f"✅ JBIG2 Images Found: {len(jbig2_images)}")
+    else:
+        st.warning("❌ No JBIG2 Images Detected")
+
     # Extract visible text
     st.subheader("📄 Extracted OCR-Visible Text")
     visible_text = extract_visible_text(pdf_path)
     st.text_area("Visible Text", visible_text[:2000], height=300)
 
-    # Extract text from images using OCR
-    st.subheader("📜 OCR Extraction from PDF Images")
+    # Extract text from JBIG2 images using OCR
+    st.subheader("📜 OCR Extraction from JBIG2 Images")
     ocr_text = extract_text_from_images(pdf_path)
     st.text_area("OCR Extracted Text", ocr_text[:2000], height=300)
 
