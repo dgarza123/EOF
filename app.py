@@ -83,8 +83,15 @@ if uploaded_file:
 
     # Display structured results
     st.subheader("📖 Extracted Financial & Property Data")
+
+    # Ensure financial_df is always a DataFrame
     financial_df = pd.DataFrame.from_dict(extracted_financial_data, orient="index").transpose()
-    st.dataframe(financial_df if not financial_df.empty else "❌ No financial data found.")
+
+    # Display results properly
+    if financial_df.empty:
+        st.warning("❌ No financial data found.")
+    else:
+        st.dataframe(financial_df)
 
     st.subheader("📖 Base64 Decoded Hidden Data")
     st.write(base64_decoded_texts if base64_decoded_texts else "❌ No Base64 encoded data detected.")
