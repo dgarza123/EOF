@@ -12,17 +12,20 @@ st.title("📄 Shiva PDF Forensic Analyzer")
 # File uploader
 uploaded_file = st.file_uploader("Upload a PDF for forensic analysis", type=["pdf"])
 
-# Function to extract and convert PDF to hex
-def convert_pdf_to_hex(pdf_file):
-    pdf_bytes = pdf_file.read()
-    hex_data = binascii.hexlify(pdf_bytes).decode("utf-8")
+# Function to convert PDF to raw binary
+def read_pdf_raw(pdf_file):
+    return pdf_file.read()
+
+# Function to convert PDF to hex
+def convert_pdf_to_hex(binary_data):
+    hex_data = binascii.hexlify(binary_data).decode("utf-8")
     return hex_data
 
 # Function to extract Base64 encoded data
 def extract_base64_strings(text):
     base64_pattern = re.compile(r"([A-Za-z0-9+/]{30,}={0,2})")
     base64_matches = base64_pattern.findall(text)
-    
+
     decoded_results = []
     for match in base64_matches:
         try:
@@ -31,22 +34,20 @@ def extract_base64_strings(text):
                 decoded_results.append(decoded_text.strip())
         except (binascii.Error, UnicodeDecodeError):
             pass  # Ignore non-decodable values
-    
+
     return decoded_results if decoded_results else ["❌ No valid Base64 data found."]
 
 # Function to decompress FlateDecode (Zlib)
-def decompress_flate(hex_data):
+def decompress_flate(binary_data):
     try:
-        binary_data = binascii.unhexlify(hex_data)  # Convert hex back to binary
         decompressed_text = zlib.decompress(binary_data).decode("utf-8", errors="ignore").strip()
         return decompressed_text if decompressed_text else "❌ No valid compressed data detected."
     except Exception:
         return "❌ Failed to decompress FlateDecode (Data may be encrypted or invalid)."
 
 # Function to decode UTF-16 LE text
-def decode_utf16_le(hex_data):
+def decode_utf16_le(binary_data):
     try:
-        binary_data = binascii.unhexlify(hex_data)
         decoded_text = binary_data.decode("utf-16-le", errors="ignore").strip()
         return decoded_text if decoded_text else "❌ No UTF-16 LE encoded data detected."
     except Exception:
@@ -55,10 +56,10 @@ def decode_utf16_le(hex_data):
 # Function to extract financial & property markers
 def extract_financial_markers(text):
     patterns = {
-        "Bank Accounts": re.compile(r"\b\d{8,12}\b"),  # Matches 8-12 digit bank account numbers
-        "Credit Card Numbers": re.compile(r"\b\d{13,16}\b"),  # Matches 13-16 digit credit card numbers
-        "Monetary Values": re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?"),  # Matches monetary values
-        "Property IDs": re.compile(r"\bT\s?\d{6}\b"),  # Matches Torrens Title Numbers (T 123456)
+        "Bank Accounts": re.compile(r"\b\d{8,12}\b"),
+        "Credit Card Numbers": re.compile(r"\b\d{13,16}\b"),
+        "Monetary Values": re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?"),
+        "Property IDs": re.compile(r"\bT\s?\d{6}\b"),
     }
 
     extracted_data = {key: list(set(pattern.findall(text))) for key, pattern in patterns.items()}
@@ -68,17 +69,20 @@ def extract_financial_markers(text):
 if uploaded_file:
     st.write("🔍 Processing the PDF...")
 
+    # Read PDF as raw binary
+    pdf_binary = read_pdf_raw(uploaded_file)
+
     # Convert PDF to hex
-    pdf_hex_data = convert_pdf_to_hex(uploaded_file)
+    pdf_hex_data = convert_pdf_to_hex(pdf_binary)
 
     # Extract Base64 encoded hidden data
     base64_decoded_texts = extract_base64_strings(pdf_hex_data)
 
     # Attempt FlateDecode (Zlib decompression)
-    flate_decoded_text = decompress_flate(pdf_hex_data)
+    flate_decoded_text = decompress_flate(pdf_binary)
 
     # Attempt UTF-16 LE decoding
-    utf16_decoded_text = decode_utf16_le(pdf_hex_data)
+    utf16_decoded_text = decode_utf16_le(pdf_binary)
 
     # Extract financial markers from decoded data
     extracted_financial_data = extract_financial_markers(flate_decoded_text + " " + utf16_decoded_text)
@@ -86,7 +90,6 @@ if uploaded_file:
     # Display structured results
     st.subheader("📖 Extracted Financial & Property Data")
 
-    # Convert extracted data to DataFrame
     if extracted_financial_data:
         financial_df = pd.DataFrame.from_dict(extracted_financial_data, orient="index").transpose()
         st.dataframe(financial_df)
@@ -99,8 +102,8 @@ if uploaded_file:
 
     # Display FlateDecode (Zlib) Decompressed Data
     st.subheader("📖 FlateDecode (Zlib) Decompressed Data Preview")
-    st.write(flate_decoded_text[:500])  # Show preview of first 500 characters
+    st.write(flate_decoded_text[:500])
 
     # Display UTF-16 LE Decoded Data
     st.subheader("📖 UTF-16 LE Decoded Data Preview")
-    st.write(utf16_decoded_text[:500])  # Show preview of first 500 characters
+    st.write(utf16_decoded_text[:500])
