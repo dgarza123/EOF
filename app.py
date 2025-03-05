@@ -26,7 +26,8 @@ def extract_base64_strings(text):
     for match in base64_matches:
         try:
             decoded_text = base64.b64decode(match).decode("utf-8", errors="ignore")
-            decoded_results.append(decoded_text)
+            if decoded_text.strip():
+                decoded_results.append(decoded_text.strip())
         except binascii.Error:
             pass  # Ignore non-decodable values
     return decoded_results
@@ -35,19 +36,31 @@ def extract_base64_strings(text):
 def decompress_flate(hex_data):
     try:
         binary_data = binascii.unhexlify(hex_data)  # Convert hex back to binary
-        decompressed_text = zlib.decompress(binary_data).decode("utf-8", errors="ignore")
-        return decompressed_text
+        decompressed_text = zlib.decompress(binary_data).decode("utf-8", errors="ignore").strip()
+        return decompressed_text if decompressed_text else "❌ No valid compressed data detected."
     except Exception as e:
-        return f"Failed to decompress FlateDecode: {str(e)}"
+        return f"❌ Failed to decompress FlateDecode: {str(e)}"
 
 # Function to decode UTF-16 LE text
 def decode_utf16_le(hex_data):
     try:
         binary_data = binascii.unhexlify(hex_data)  # Convert hex back to binary
-        decoded_text = binary_data.decode("utf-16-le", errors="ignore")  # Decode as UTF-16 LE
-        return decoded_text
+        decoded_text = binary_data.decode("utf-16-le", errors="ignore").strip()
+        return decoded_text if decoded_text else "❌ No UTF-16 LE encoded data detected."
     except Exception as e:
-        return f"Failed to decode UTF-16 LE: {str(e)}"
+        return f"❌ Failed to decode UTF-16 LE: {str(e)}"
+
+# Function to extract financial & property markers
+def extract_financial_markers(text):
+    patterns = {
+        "Bank Accounts": re.compile(r"\b\d{8,12}\b"),  # Matches 8-12 digit bank account numbers
+        "Credit Card Numbers": re.compile(r"\b\d{13,16}\b"),  # Matches 13-16 digit credit card numbers
+        "Monetary Values": re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?"),  # Matches monetary values
+        "Property IDs": re.compile(r"\bT\s?\d{6}\b"),  # Matches Torrens Title Numbers (T 123456)
+    }
+
+    extracted_data = {key: list(set(pattern.findall(text))) for key, pattern in patterns.items()}
+    return extracted_data
 
 # If a file is uploaded, process it
 if uploaded_file:
@@ -60,17 +73,24 @@ if uploaded_file:
     base64_decoded_texts = extract_base64_strings(pdf_hex_data)
 
     # Attempt FlateDecode (zlib decompression)
-    flate_decoded_texts = decompress_flate(pdf_hex_data)
+    flate_decoded_text = decompress_flate(pdf_hex_data)
 
     # Attempt UTF-16 LE decoding
-    utf16_decoded_texts = decode_utf16_le(pdf_hex_data)
+    utf16_decoded_text = decode_utf16_le(pdf_hex_data)
 
-    # Display results
+    # Extract financial markers from decoded data
+    extracted_financial_data = extract_financial_markers(flate_decoded_text + " " + utf16_decoded_text)
+
+    # Display structured results
+    st.subheader("📖 Extracted Financial & Property Data")
+    financial_df = pd.DataFrame.from_dict(extracted_financial_data, orient="index").transpose()
+    st.dataframe(financial_df if not financial_df.empty else "❌ No financial data found.")
+
     st.subheader("📖 Base64 Decoded Hidden Data")
     st.write(base64_decoded_texts if base64_decoded_texts else "❌ No Base64 encoded data detected.")
 
-    st.subheader("📖 FlateDecode (Zlib) Decompressed Data")
-    st.write(flate_decoded_texts if "Failed" not in flate_decoded_texts else "❌ No valid compressed data detected.")
+    st.subheader("📖 FlateDecode (Zlib) Decompressed Data Preview")
+    st.write(flate_decoded_text[:500])  # Show preview
 
-    st.subheader("📖 UTF-16 LE Decoded Data")
-    st.write(utf16_decoded_texts if "Failed" not in utf16_decoded_texts else "❌ No UTF-16 LE encoded data detected.")
+    st.subheader("📖 UTF-16 LE Decoded Data Preview")
+    st.write(utf16_decoded_text[:500])  # Show preview
