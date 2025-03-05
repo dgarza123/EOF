@@ -1,3 +1,6 @@
 streamlit
 pandas
 PyPDF2
+pdf2image
+pytesseract
+jbig2dec
