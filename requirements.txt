@@ -1,5 +1,3 @@
 streamlit
-pymupdf
 pandas
-
-
+PyPDF2
