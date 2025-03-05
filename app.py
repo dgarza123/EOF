@@ -1,84 +1,76 @@
-import os
 import streamlit as st
-from google.cloud import vision
-from PIL import Image
-from io import BytesIO
 import fitz  # PyMuPDF
+import base64
+import binascii
+import re
+import zlib
 import pandas as pd
 
-# Access Google Vision credentials from Streamlit secrets (set in Streamlit Cloud)
-google_vision_credentials_path = st.secrets["google_vision"]["credentials_path"]
+# Title of the app
+st.title("📄 Shiva PDF Forensic Analyzer")
 
-# Set the environment variable for Google Vision API authentication
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = google_vision_credentials_path
+# File uploader
+uploaded_file = st.file_uploader("Upload a PDF for forensic analysis", type=["pdf"])
 
-# Initialize Google Vision client
-client = vision.ImageAnnotatorClient()
+# Function to extract and convert PDF to hex
+def convert_pdf_to_hex(pdf_file):
+    pdf_bytes = pdf_file.read()
+    hex_data = binascii.hexlify(pdf_bytes).decode("utf-8")
+    return hex_data
 
-# Function to perform OCR using Google Vision
-def extract_text_from_image_with_vision(image_data):
-    image = vision.Image(content=image_data)
-    response = client.text_detection(image=image)
-    
-    # Extract text from the response
-    if response.error.message:
-        raise Exception(f"Google Vision API Error: {response.error.message}")
-    else:
-        texts = response.text_annotations
-        return texts[0].description if texts else ""  # Return the full detected text
+# Function to extract Base64 encoded data
+def extract_base64_strings(text):
+    base64_pattern = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+    base64_matches = base64_pattern.findall(text)
+    decoded_results = []
+    for match in base64_matches:
+        try:
+            decoded_text = base64.b64decode(match).decode("utf-8", errors="ignore")
+            decoded_results.append(decoded_text)
+        except binascii.Error:
+            pass  # Ignore non-decodable values
+    return decoded_results
 
-# Function to extract text from PDF using images and Google Vision OCR
-def extract_graphics_as_images_for_ocr(pdf_path):
-    doc = fitz.open(pdf_path)
-    ocr_texts = []
+# Function to decompress FlateDecode streams
+def decompress_flate(hex_data):
+    try:
+        binary_data = binascii.unhexlify(hex_data)  # Convert hex back to binary
+        decompressed_text = zlib.decompress(binary_data).decode("utf-8", errors="ignore")
+        return decompressed_text
+    except Exception as e:
+        return f"Failed to decompress FlateDecode: {str(e)}"
 
-    for page in doc:
-        images = page.get_images(full=True)  # Extract images from the page
-        for img_index, img in enumerate(images):
-            xref = img[0]
-            base_image = doc.extract_image(xref)
-            image_data = base_image["image"]
-            
-            # Apply OCR using Google Vision on the extracted image
-            ocr_result = extract_text_from_image_with_vision(image_data)
-            if ocr_result.strip():
-                ocr_texts.append(f"Page {page.number + 1}, Image {img_index}: {ocr_result}")
+# Function to decode UTF-16 LE text
+def decode_utf16_le(hex_data):
+    try:
+        binary_data = binascii.unhexlify(hex_data)  # Convert hex back to binary
+        decoded_text = binary_data.decode("utf-16-le", errors="ignore")  # Decode as UTF-16 LE
+        return decoded_text
+    except Exception as e:
+        return f"Failed to decode UTF-16 LE: {str(e)}"
 
-    return ocr_texts
+# If a file is uploaded, process it
+if uploaded_file:
+    st.write("🔍 Processing the PDF...")
 
-# Function to extract PDF metadata
-def detect_pdf_metadata(pdf_path):
-    doc = fitz.open(pdf_path)
-    metadata = doc.metadata
-    return metadata
+    # Convert PDF to hex
+    pdf_hex_data = convert_pdf_to_hex(uploaded_file)
 
-# Main function to extract data from PDF
-def extract_data_from_pdf(pdf_path):
-    ocr_text = extract_graphics_as_images_for_ocr(pdf_path)  # Extract OCR text from images using Google Vision
-    metadata = detect_pdf_metadata(pdf_path)  # Extract metadata for extra details
-    
-    # Combine all extracted data
-    return {
-        "OCR Text": ocr_text,
-        "Metadata": metadata
-    }
+    # Extract Base64 encoded hidden data
+    base64_decoded_texts = extract_base64_strings(pdf_hex_data)
 
-# Streamlit user interface
-st.title("PDF Data Extractor with Google Vision OCR")
-st.sidebar.header("Upload Your PDF")
+    # Attempt FlateDecode (zlib decompression)
+    flate_decoded_texts = decompress_flate(pdf_hex_data)
 
-# Upload PDF
-uploaded_file = st.sidebar.file_uploader("Choose a PDF file", type="pdf")
+    # Attempt UTF-16 LE decoding
+    utf16_decoded_texts = decode_utf16_le(pdf_hex_data)
 
-if uploaded_file is not None:
-    st.write("Processing the file...")
+    # Display results
+    st.subheader("📖 Base64 Decoded Hidden Data")
+    st.write(base64_decoded_texts if base64_decoded_texts else "❌ No Base64 encoded data detected.")
 
-    # Extract the necessary data from the uploaded PDF
-    extracted_data = extract_data_from_pdf(uploaded_file)
+    st.subheader("📖 FlateDecode (Zlib) Decompressed Data")
+    st.write(flate_decoded_texts if "Failed" not in flate_decoded_texts else "❌ No valid compressed data detected.")
 
-    # Display extracted data
-    st.subheader("OCR Extracted Text from Images using Google Vision")
-    st.write(extracted_data["OCR Text"])
-
-    st.subheader("PDF Metadata")
-    st.write(extracted_data["Metadata"])
+    st.subheader("📖 UTF-16 LE Decoded Data")
+    st.write(utf16_decoded_texts if "Failed" not in utf16_decoded_texts else "❌ No UTF-16 LE encoded data detected.")
