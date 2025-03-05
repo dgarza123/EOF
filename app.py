@@ -1,109 +1,86 @@
 import streamlit as st
-import fitz  # PyMuPDF
-import base64
-import binascii
-import re
-import zlib
 import pandas as pd
+import base64
+import zlib
+import re
+from PyPDF2 import PdfReader
 
-# Title of the app
-st.title("📄 Shiva PDF Forensic Analyzer")
+# Function to extract text from PDF
+def extract_text_from_pdf(pdf_file):
+    pdf_reader = PdfReader(pdf_file)
+    extracted_text = ''
+    for page in pdf_reader.pages:
+        extracted_text += page.extract_text() or ''
+    return extracted_text
 
-# File uploader
-uploaded_file = st.file_uploader("Upload a PDF for forensic analysis", type=["pdf"])
-
-# Function to convert PDF to raw binary
-def read_pdf_raw(pdf_file):
-    return pdf_file.read()
-
-# Function to convert PDF to hex
-def convert_pdf_to_hex(binary_data):
-    hex_data = binascii.hexlify(binary_data).decode("utf-8")
-    return hex_data
-
-# Function to extract Base64 encoded data
-def extract_base64_strings(text):
-    base64_pattern = re.compile(r"([A-Za-z0-9+/]{30,}={0,2})")
-    base64_matches = base64_pattern.findall(text)
-
-    decoded_results = []
-    for match in base64_matches:
-        try:
-            decoded_text = base64.b64decode(match).decode("utf-8", errors="ignore")
-            if decoded_text.strip():
-                decoded_results.append(decoded_text.strip())
-        except (binascii.Error, UnicodeDecodeError):
-            pass  # Ignore non-decodable values
-
-    return decoded_results if decoded_results else ["❌ No valid Base64 data found."]
-
-# Function to decompress FlateDecode (Zlib)
-def decompress_flate(binary_data):
+# Function to detect Base64 encoded data and decode it
+def decode_base64(encoded_text):
     try:
-        decompressed_text = zlib.decompress(binary_data).decode("utf-8", errors="ignore").strip()
-        return decompressed_text if decompressed_text else "❌ No valid compressed data detected."
+        decoded_bytes = base64.b64decode(encoded_text, validate=True)
+        decoded_text = decoded_bytes.decode('utf-8', errors='ignore')
+        return decoded_text
     except Exception:
-        return "❌ Failed to decompress FlateDecode (Data may be encrypted or invalid)."
+        return None
 
-# Function to decode UTF-16 LE text
-def decode_utf16_le(binary_data):
+# Function to attempt zlib decompression
+def decompress_zlib(data):
     try:
-        decoded_text = binary_data.decode("utf-16-le", errors="ignore").strip()
-        return decoded_text if decoded_text else "❌ No UTF-16 LE encoded data detected."
+        decompressed_bytes = zlib.decompress(data)
+        return decompressed_bytes.decode('utf-8', errors='ignore')
     except Exception:
-        return "❌ Failed to decode UTF-16 LE (Invalid format)."
+        return None
 
-# Function to extract financial & property markers
-def extract_financial_markers(text):
+# Function to find financial markers in text
+def extract_financial_data(text):
     patterns = {
-        "Bank Accounts": re.compile(r"\b\d{8,12}\b"),
-        "Credit Card Numbers": re.compile(r"\b\d{13,16}\b"),
-        "Monetary Values": re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?"),
-        "Property IDs": re.compile(r"\bT\s?\d{6}\b"),
+        "Bank Account Numbers": re.findall(r'\b\d{8,12}\b', text),
+        "Routing Numbers": re.findall(r'\b\d{9}\b', text),
+        "Credit Card Numbers": re.findall(r'\b\d{13,16}\b', text),
+        "Monetary Values": re.findall(r'\b\d{1,3}(,\d{3})*(\.\d{2})?\b', text)
     }
+    return {key: values for key, values in patterns.items() if values}
 
-    extracted_data = {key: list(set(pattern.findall(text))) for key, pattern in patterns.items()}
-    return {k: v for k, v in extracted_data.items() if v}
+# Streamlit UI
+st.title("Shiva PDF Analyzer")
 
-# If a file is uploaded, process it
+uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
+
 if uploaded_file:
-    st.write("🔍 Processing the PDF...")
+    st.subheader("Processing the PDF...")
+    
+    # Extract visible text
+    extracted_text = extract_text_from_pdf(uploaded_file)
 
-    # Read PDF as raw binary
-    pdf_binary = read_pdf_raw(uploaded_file)
-
-    # Convert PDF to hex
-    pdf_hex_data = convert_pdf_to_hex(pdf_binary)
-
-    # Extract Base64 encoded hidden data
-    base64_decoded_texts = extract_base64_strings(pdf_hex_data)
-
-    # Attempt FlateDecode (Zlib decompression)
-    flate_decoded_text = decompress_flate(pdf_binary)
-
-    # Attempt UTF-16 LE decoding
-    utf16_decoded_text = decode_utf16_le(pdf_binary)
-
-    # Extract financial markers from decoded data
-    extracted_financial_data = extract_financial_markers(flate_decoded_text + " " + utf16_decoded_text)
-
-    # Display structured results
-    st.subheader("📖 Extracted Financial & Property Data")
-
-    if extracted_financial_data:
-        financial_df = pd.DataFrame.from_dict(extracted_financial_data, orient="index").transpose()
-        st.dataframe(financial_df)
+    # Display extracted financial data
+    financial_data = extract_financial_data(extracted_text)
+    st.subheader("📄 Extracted Financial & Property Data")
+    if financial_data:
+        st.dataframe(pd.DataFrame(dict([(k, pd.Series(v)) for k, v in financial_data.items()])))
     else:
         st.warning("❌ No financial data found.")
 
-    # Display Base64 Decoded Data
-    st.subheader("📖 Base64 Decoded Hidden Data")
-    st.write(base64_decoded_texts)
+    # Attempt to decode Base64 hidden data
+    base64_decoded_text = decode_base64(extracted_text)
+    st.subheader("📜 Base64 Decoded Hidden Data")
+    if base64_decoded_text:
+        st.text_area("Decoded Base64 Content", base64_decoded_text, height=200)
+    else:
+        st.error("❌ No Base64 encoded hidden data found.")
 
-    # Display FlateDecode (Zlib) Decompressed Data
-    st.subheader("📖 FlateDecode (Zlib) Decompressed Data Preview")
-    st.write(flate_decoded_text[:500])
+    # Attempt FlateDecode (Zlib Decompression)
+    st.subheader("🔍 FlateDecode (Zlib) Decompressed Data Preview")
+    zlib_decoded_text = decompress_zlib(extracted_text.encode('utf-8', errors='ignore'))
+    if zlib_decoded_text:
+        st.text_area("Zlib Decompressed Content", zlib_decoded_text, height=200)
+    else:
+        st.error("❌ Failed to decompress FlateDecode (Data may be encrypted or invalid).")
 
-    # Display UTF-16 LE Decoded Data
-    st.subheader("📖 UTF-16 LE Decoded Data Preview")
-    st.write(utf16_decoded_text[:500])
+    # Display raw extracted text preview
+    st.subheader("📑 UTF-16 LE Decoded Data Preview")
+    try:
+        utf16_text = extracted_text.encode("utf-8").decode("utf-16-le")
+        st.text_area("UTF-16 LE Decoded Content", utf16_text, height=200)
+    except Exception:
+        st.error("❌ Failed to decode UTF-16 LE text.")
+
+st.sidebar.info("Upload a PDF to analyze hidden and financial data.")
