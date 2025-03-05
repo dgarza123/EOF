@@ -2,31 +2,31 @@ import os
 import subprocess
 
 # 🔹 Ensure required dependencies are installed before importing them
-packages = ["pandas", "PyPDF2", "pdf2image", "pytesseract", "jbig2dec"]
+packages = ["pandas", "PyPDF2", "pdf2image", "pytesseract"]
 for package in packages:
     try:
         __import__(package)
     except ImportError:
         subprocess.run(["pip", "install", package])
 
+# Ensure PyPDF2 is installed properly
+try:
+    import PyPDF2
+except ImportError:
+    subprocess.run(["pip", "install", "--force-reinstall", "PyPDF2"])
+    import PyPDF2
+
 # Now import the installed modules
 import streamlit as st
 import pandas as pd
 import re
-import PyPDF2
 import pytesseract
 from pdf2image import convert_from_path
 
-# Function to detect JBIG2 compression in a PDF
-def detect_jbig2(pdf_path):
-    """Runs pdf-parser.py to check for JBIG2 streams."""
-    try:
-        result = subprocess.run(["python3", "pdf-parser.py", "-search", "JBIG2Decode", pdf_path], capture_output=True, text=True)
-        return "JBIG2Decode" in result.stdout
-    except Exception as e:
-        return f"Error detecting JBIG2: {e}"
+# Ensure pytesseract is in PATH
+os.environ["PATH"] += os.pathsep + "/home/appuser/.local/bin"
 
-# Function to extract text using OCR from JBIG2 images
+# Function to extract text using OCR from PDF images
 def extract_text_from_images(pdf_path):
     try:
         images = convert_from_path(pdf_path, fmt="png")
@@ -58,7 +58,7 @@ def extract_financial_data(text):
     return {key: values for key, values in patterns.items() if values}
 
 # Streamlit UI
-st.title("Shiva PDF Analyzer (With JBIG2 OCR Extraction)")
+st.title("Shiva PDF Analyzer (With OCR Extraction)")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
@@ -69,21 +69,13 @@ if uploaded_file:
 
     st.write("🔍 Processing the PDF...")
 
-    # Detect JBIG2 compression
-    st.subheader("📂 JBIG2 Compression Detection")
-    jbig2_detected = detect_jbig2(pdf_path)
-    if jbig2_detected:
-        st.success("✅ JBIG2 Compression Found")
-    else:
-        st.warning("❌ No JBIG2 Compression Detected")
-
     # Extract visible text
     st.subheader("📄 Extracted OCR-Visible Text")
     visible_text = extract_visible_text(pdf_path)
     st.text_area("Visible Text", visible_text[:2000], height=300)
 
-    # Extract text from JBIG2 images using OCR
-    st.subheader("📜 OCR Extraction from JBIG2 Images")
+    # Extract text from images using OCR
+    st.subheader("📜 OCR Extraction from PDF Images")
     ocr_text = extract_text_from_images(pdf_path)
     st.text_area("OCR Extracted Text", ocr_text[:2000], height=300)
 
