@@ -1,8 +1,5 @@
 streamlit
-pymupdf==1.22.3
-pytesseract
-pdf2image
-Pillow
-chardet
-requests
+pymupdf
+pandas
+
 
