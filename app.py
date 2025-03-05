@@ -1,7 +1,17 @@
+import os
+import subprocess
+
+# 🔹 Ensure required dependencies are installed before importing them
+packages = ["pandas", "PyPDF2", "pdf2image", "pytesseract", "jbig2dec"]
+for package in packages:
+    try:
+        __import__(package)
+    except ImportError:
+        subprocess.run(["pip", "install", package])
+
+# Now import the installed modules
 import streamlit as st
 import pandas as pd
-import subprocess
-import os
 import re
 import PyPDF2
 import pytesseract
